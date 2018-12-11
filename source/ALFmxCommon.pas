@@ -4797,6 +4797,7 @@ const aDefaultInputRange: array[0..1] of CGFloat = (0, 1);
 var aRect: TrectF;
     aTmpBitmap: Jbitmap;
     aShader: JRadialGradient;
+    aShaderL: JLinearGradient;
     aPaint: JPaint;
     aColors: TJavaArray<Integer>;
     aStops: TJavaArray<Single>;
@@ -4852,23 +4853,27 @@ begin
 
     //fill with gradient
     if Fill.Kind = TBrushKind.Gradient then begin
+      aColors := TJavaArray<Integer>.Create(Fill.Gradient.Points.Count);
+      aStops := TJavaArray<Single>.Create(Fill.Gradient.Points.Count);
+      for i := 0 to Fill.Gradient.Points.Count - 1 do begin
+        aColors[Fill.Gradient.Points.Count - 1 - i] := integer(Fill.Gradient.Points[i].Color);
+        aStops[Fill.Gradient.Points.Count - 1 - i] := 1 - Fill.Gradient.Points[i].Offset;
+      end;
+
       if Fill.Gradient.Style = TGradientStyle.Radial then begin
-        aColors := TJavaArray<Integer>.Create(Fill.Gradient.Points.Count);
-        aStops := TJavaArray<Single>.Create(Fill.Gradient.Points.Count);
-        for i := 0 to Fill.Gradient.Points.Count - 1 do begin
-          aColors[Fill.Gradient.Points.Count - 1 - i] := integer(Fill.Gradient.Points[i].Color);
-          aStops[Fill.Gradient.Points.Count - 1 - i] := 1 - Fill.Gradient.Points[i].Offset;
-        end;
         aShader := TJRadialGradient.JavaClass.init(aRect.CenterPoint.x{x}, aRect.CenterPoint.y{y}, aRect.width / 2{radius},  aColors, aStops, TJShader_TileMode.JavaClass.CLAMP{tile});
         aPaint.setShader(aShader);
-        _drawRect(aCanvas, aPaint, aRect, false{aDrawOnlyBorder});
-        aPaint.setShader(nil);
-        aShader := nil;
-        ALfreeandNil(aColors);
-        ALfreeandNil(aStops);
+      end else begin
+        aShaderL := TJLinearGradient.JavaClass.init(Fill.Gradient.StopPosition.X * aRect.Width{x0}, Fill.Gradient.StopPosition.Y * aRect.Height{y0}, Fill.Gradient.StartPosition.X * aRect.Width{x1}, Fill.Gradient.StartPosition.Y * aRect.Height{y1}, aColors, aStops, TJShader_TileMode.JavaClass.CLAMP{tile});
+        aPaint.setShader(aShaderL);
       end;
-    end
 
+      _drawRect(aCanvas, aPaint, aRect, false{aDrawOnlyBorder});
+      aPaint.setShader(nil);
+      aShader := nil;
+      ALfreeandNil(aColors);
+      ALfreeandNil(aStops);
+    end
     //fill with bitmap
     else if Fill.Kind = TBrushKind.Bitmap then begin
       if not fill.Bitmap.Bitmap.IsEmpty then begin
@@ -5225,6 +5230,7 @@ const aDefaultInputRange: array[0..1] of CGFloat = (0, 1);
 {$IF defined(ANDROID)}
 var aTmpBitmap: Jbitmap;
     aShader: JRadialGradient;
+    aShaderL: JLinearGradient;
     aPaint: JPaint;
     aRect: TRectf;
     aColors: TJavaArray<Integer>;
@@ -5280,27 +5286,30 @@ begin
 
     //fill with gradient
     if Fill.Kind = TBrushKind.Gradient then begin
+      aColors := TJavaArray<Integer>.Create(Fill.Gradient.Points.Count);
+      aStops := TJavaArray<Single>.Create(Fill.Gradient.Points.Count);
+      for i := 0 to Fill.Gradient.Points.Count - 1 do begin
+        aColors[Fill.Gradient.Points.Count - 1 - i] := integer(Fill.Gradient.Points[i].Color);
+        aStops[Fill.Gradient.Points.Count - 1 - i] := 1 - Fill.Gradient.Points[i].Offset;
+      end;
       if Fill.Gradient.Style = TGradientStyle.Radial then begin
-        aColors := TJavaArray<Integer>.Create(Fill.Gradient.Points.Count);
-        aStops := TJavaArray<Single>.Create(Fill.Gradient.Points.Count);
-        for i := 0 to Fill.Gradient.Points.Count - 1 do begin
-          aColors[Fill.Gradient.Points.Count - 1 - i] := integer(Fill.Gradient.Points[i].Color);
-          aStops[Fill.Gradient.Points.Count - 1 - i] := 1 - Fill.Gradient.Points[i].Offset;
-        end;
         aShader := TJRadialGradient.JavaClass.init(aRect.CenterPoint.x{x}, aRect.CenterPoint.y{y}, aRect.width / 2{radius},  aColors, aStops, TJShader_TileMode.JavaClass.CLAMP{tile});
         aPaint.setShader(aShader);
-        if (Shadow <> nil) and
-           (Shadow.enabled) then aPaint.setShadowLayer(Shadow.blur{radius}, Shadow.OffsetX{dx}, Shadow.OffsetY{dy}, Shadow.ShadowColor{shadowColor});
-        aCanvas.drawCircle(aRect.CenterPoint.x{cx}, aRect.CenterPoint.y{cy}, aRect.width / 2{radius}, apaint);
-        if (Shadow <> nil) and
-           (Shadow.enabled) then aPaint.clearShadowLayer;
-        aPaint.setShader(nil);
-        aShader := nil;
-        alfreeandNil(aColors);
-        alfreeandNil(aStops);
+      end else begin
+        aShaderL := TJLinearGradient.JavaClass.init(Fill.Gradient.StopPosition.X * aRect.Width{x0}, Fill.Gradient.StopPosition.Y * aRect.Height{y0}, Fill.Gradient.StartPosition.X * aRect.Width{x1}, Fill.Gradient.StartPosition.Y * aRect.Height{y1}, aColors, aStops, TJShader_TileMode.JavaClass.CLAMP{tile});
+        aPaint.setShader(aShaderL);
       end;
-    end
 
+      if (Shadow <> nil) and
+         (Shadow.enabled) then aPaint.setShadowLayer(Shadow.blur{radius}, Shadow.OffsetX{dx}, Shadow.OffsetY{dy}, Shadow.ShadowColor{shadowColor});
+      aCanvas.drawCircle(aRect.CenterPoint.x{cx}, aRect.CenterPoint.y{cy}, aRect.width / 2{radius}, apaint);
+      if (Shadow <> nil) and
+         (Shadow.enabled) then aPaint.clearShadowLayer;
+      aPaint.setShader(nil);
+      aShader := nil;
+      alfreeandNil(aColors);
+      alfreeandNil(aStops);
+    end
     //fill with bitmap
     else if Fill.Kind = TBrushKind.Bitmap then begin
       if not fill.Bitmap.Bitmap.IsEmpty then begin
