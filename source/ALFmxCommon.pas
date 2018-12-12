@@ -1,4 +1,4 @@
-﻿unit ALFmxCommon;
+unit ALFmxCommon;
 
 interface
 
@@ -653,6 +653,7 @@ uses system.SysUtils,
      Androidapi.JNI.Os,
      Androidapi.Bitmap,
      FMX.platForm.android,
+     FMX.Platform.UI.Android,
      FMX.forms,
      alFmxEdit,
      {$ENDIF}
@@ -4797,6 +4798,7 @@ const aDefaultInputRange: array[0..1] of CGFloat = (0, 1);
 var aRect: TrectF;
     aTmpBitmap: Jbitmap;
     aShader: JRadialGradient;
+    aShaderL: JLinearGradient;
     aPaint: JPaint;
     aColors: TJavaArray<Integer>;
     aStops: TJavaArray<Single>;
@@ -4852,21 +4854,26 @@ begin
 
     //fill with gradient
     if Fill.Kind = TBrushKind.Gradient then begin
+      aColors := TJavaArray<Integer>.Create(Fill.Gradient.Points.Count);
+      aStops := TJavaArray<Single>.Create(Fill.Gradient.Points.Count);
+      for i := 0 to Fill.Gradient.Points.Count - 1 do begin
+        aColors[Fill.Gradient.Points.Count - 1 - i] := integer(Fill.Gradient.Points[i].Color);
+        aStops[Fill.Gradient.Points.Count - 1 - i] := 1 - Fill.Gradient.Points[i].Offset;
+      end;
+
       if Fill.Gradient.Style = TGradientStyle.Radial then begin
-        aColors := TJavaArray<Integer>.Create(Fill.Gradient.Points.Count);
-        aStops := TJavaArray<Single>.Create(Fill.Gradient.Points.Count);
-        for i := 0 to Fill.Gradient.Points.Count - 1 do begin
-          aColors[Fill.Gradient.Points.Count - 1 - i] := integer(Fill.Gradient.Points[i].Color);
-          aStops[Fill.Gradient.Points.Count - 1 - i] := 1 - Fill.Gradient.Points[i].Offset;
-        end;
         aShader := TJRadialGradient.JavaClass.init(aRect.CenterPoint.x{x}, aRect.CenterPoint.y{y}, aRect.width / 2{radius},  aColors, aStops, TJShader_TileMode.JavaClass.CLAMP{tile});
         aPaint.setShader(aShader);
-        _drawRect(aCanvas, aPaint, aRect, false{aDrawOnlyBorder});
-        aPaint.setShader(nil);
-        aShader := nil;
-        ALfreeandNil(aColors);
-        ALfreeandNil(aStops);
+      end else begin
+        aShaderL := TJLinearGradient.JavaClass.init(Fill.Gradient.StopPosition.X * aRect.Width{x0}, Fill.Gradient.StopPosition.Y * aRect.Height{y0}, Fill.Gradient.StartPosition.X * aRect.Width{x1}, Fill.Gradient.StartPosition.Y * aRect.Height{y1}, aColors, aStops, TJShader_TileMode.JavaClass.CLAMP{tile});
+        aPaint.setShader(aShaderL);
       end;
+
+      _drawRect(aCanvas, aPaint, aRect, false{aDrawOnlyBorder});
+      aPaint.setShader(nil);
+      aShader := nil;
+      ALfreeandNil(aColors);
+      ALfreeandNil(aStops);
     end
 
     //fill with bitmap
@@ -4956,68 +4963,78 @@ begin
 
     //fill with gradient
     if Fill.Kind = TBrushKind.Gradient then begin
-      if Fill.Gradient.Style = TGradientStyle.Radial then begin
-        CGContextSaveGState(aContext);
-        //-----
-        aCallback.version := 0;
-        aCallback.evaluate := @ALGradientEvaluateCallback;
-        aCallback.releaseInfo:= nil;
-        aFunc := CGFunctionCreate(fill.Gradient, // info - A pointer to user-defined storage for data that you want to pass to your callbacks.
-                                  1, // domainDimension - The number of inputs.
-                                  @aDefaultInputRange, // domain - An array of (2*domainDimension) floats used to specify the valid intervals of input values
-                                  4, // rangeDimension - The number of outputs.
-                                  nil, // range - An array of (2*rangeDimension) floats that specifies the valid intervals of output values
-                                  @aCallback); // callbacks - A pointer to a callback function table.
-        try
-          aShading := CGShadingCreateRadial(aColorSpace, // colorspace
-                                            CGPoint.Create(TPointF.Create(aRect.Width / 2, aRect.height / 2)), // start - The center of the starting circle, in the shading's target coordinate space.
-                                            aRect.Width / 2, // startRadius - The radius of the starting circle, in the shading's target coordinate space.
-                                            CGPoint.Create(TPointF.Create(aRect.Width / 2, aRect.Height / 2)), // end - The center of the ending circle, in the shading's target coordinate space.
-                                            0, // endRadius - The radius of the ending circle, in the shading's target coordinate space.
-                                            aFunc, // function
-                                            1, // extendStart - A Boolean value that specifies whether to extend the shading beyond the starting circle.
-                                            1); // extendEnd - A Boolean value that specifies whether to extend the shading beyond the ending circle.
-          try
-            _DrawPath(aRect, false{aDrawOnlyBorder});
-            CGContextClip(aContext); // Modifies the current clipping path, using the nonzero winding number rule.
-                                     // Unlike the current path, the current clipping path is part of the graphics state. Therefore,
-                                     // to re-enlarge the paintable area by restoring the clipping path to a prior state, you must
-                                     // save the graphics state before you clip and restore the graphics state after you’ve completed
-                                     // any clipped drawing.
-            //-----
-            if (Shadow <> nil) and
-               (Shadow.enabled) then begin
-              aAlphaColor := TAlphaColorCGFloat.Create(Shadow.ShadowColor);
-              aColor := CGColorCreate(aColorSpace, @aAlphaColor);
-              try
-                CGContextSetShadowWithColor(aContext,
-                                            CGSizeMake(Shadow.OffsetX, Shadow.OffsetY), // offset
-                                            Shadow.blur, // blur
-                                            aColor); // color
-              finally
-                CGColorRelease(aColor);
-              end;
-            end;
-            //-----
-            CGContextDrawShading(aContext, aShading);
-            //-----
-            if (Shadow <> nil) and
-               (Shadow.enabled) then begin
-              CGContextSetShadowWithColor(aContext,
-                                          CGSizeMake(0, 0), // offset
-                                          0, // blur
-                                          nil); // color
-            end;
-            //-----
-          finally
-            CGShadingRelease(aShading);
-          end;
-        finally
-          CGFunctionRelease(aFunc);
+      CGContextSaveGState(aContext);
+      //-----
+      aCallback.version := 0;
+      aCallback.evaluate := @ALGradientEvaluateCallback;
+      aCallback.releaseInfo:= nil;
+      aFunc := CGFunctionCreate(fill.Gradient, // info - A pointer to user-defined storage for data that you want to pass to your callbacks.
+                                1, // domainDimension - The number of inputs.
+                                @aDefaultInputRange, // domain - An array of (2*domainDimension) floats used to specify the valid intervals of input values
+                                4, // rangeDimension - The number of outputs.
+                                nil, // range - An array of (2*rangeDimension) floats that specifies the valid intervals of output values
+                                @aCallback); // callbacks - A pointer to a callback function table.
+      try
+
+        if Fill.Gradient.Style = TGradientStyle.Radial then begin
+            aShading := CGShadingCreateRadial(aColorSpace, // colorspace
+                                              CGPoint.Create(TPointF.Create(aRect.Width / 2, aRect.height / 2)), // start - The center of the starting circle, in the shading's target coordinate space.
+                                              aRect.Width / 2, // startRadius - The radius of the starting circle, in the shading's target coordinate space.
+                                              CGPoint.Create(TPointF.Create(aRect.Width / 2, aRect.Height / 2)), // end - The center of the ending circle, in the shading's target coordinate space.
+                                              0, // endRadius - The radius of the ending circle, in the shading's target coordinate space.
+                                              aFunc, // function
+                                              1, // extendStart - A Boolean value that specifies whether to extend the shading beyond the starting circle.
+                                              1); // extendEnd - A Boolean value that specifies whether to extend the shading beyond the ending circle.
+        end else begin
+            aShading := CGShadingCreateAxial(aColorSpace, // colorspace
+                                              CGPoint.Create(TPointF.Create(Fill.Gradient.StopPosition.X * aRect.Width{x0}, Fill.Gradient.StopPosition.Y * aRect.Height{y0})),
+                                              CGPoint.Create(TPointF.Create(Fill.Gradient.StartPosition.X * aRect.Width{x1}, Fill.Gradient.StartPosition.Y * aRect.Height{y1})),
+                                              aFunc, // function
+                                              1, // extendStart - A Boolean value that specifies whether to extend the shading beyond the starting circle.
+                                              1); // extendEnd - A Boolean value that specifies whether to extend the shading beyond the ending circle.
         end;
-        //-----
-        CGContextRestoreGState(aContext);
+
+        try
+          _DrawPath(aRect, false{aDrawOnlyBorder});
+          CGContextClip(aContext); // Modifies the current clipping path, using the nonzero winding number rule.
+                                   // Unlike the current path, the current clipping path is part of the graphics state. Therefore,
+                                   // to re-enlarge the paintable area by restoring the clipping path to a prior state, you must
+                                   // save the graphics state before you clip and restore the graphics state after you’ve completed
+                                   // any clipped drawing.
+          //-----
+          if (Shadow <> nil) and
+             (Shadow.enabled) then begin
+            aAlphaColor := TAlphaColorCGFloat.Create(Shadow.ShadowColor);
+            aColor := CGColorCreate(aColorSpace, @aAlphaColor);
+            try
+              CGContextSetShadowWithColor(aContext,
+                                          CGSizeMake(Shadow.OffsetX, Shadow.OffsetY), // offset
+                                          Shadow.blur, // blur
+                                          aColor); // color
+            finally
+              CGColorRelease(aColor);
+            end;
+          end;
+          //-----
+          CGContextDrawShading(aContext, aShading);
+          //-----
+          if (Shadow <> nil) and
+             (Shadow.enabled) then begin
+            CGContextSetShadowWithColor(aContext,
+                                        CGSizeMake(0, 0), // offset
+                                        0, // blur
+                                        nil); // color
+          end;
+          //-----
+        finally
+          CGShadingRelease(aShading);
+        end;
+      finally
+        CGFunctionRelease(aFunc);
       end;
+      //-----
+      CGContextRestoreGState(aContext);
+
     end
 
     //fill with bitmap
@@ -5225,6 +5242,7 @@ const aDefaultInputRange: array[0..1] of CGFloat = (0, 1);
 {$IF defined(ANDROID)}
 var aTmpBitmap: Jbitmap;
     aShader: JRadialGradient;
+    aShaderL: JLinearGradient;
     aPaint: JPaint;
     aRect: TRectf;
     aColors: TJavaArray<Integer>;
@@ -5280,25 +5298,29 @@ begin
 
     //fill with gradient
     if Fill.Kind = TBrushKind.Gradient then begin
+      aColors := TJavaArray<Integer>.Create(Fill.Gradient.Points.Count);
+      aStops := TJavaArray<Single>.Create(Fill.Gradient.Points.Count);
+      for i := 0 to Fill.Gradient.Points.Count - 1 do begin
+        aColors[Fill.Gradient.Points.Count - 1 - i] := integer(Fill.Gradient.Points[i].Color);
+        aStops[Fill.Gradient.Points.Count - 1 - i] := 1 - Fill.Gradient.Points[i].Offset;
+      end;
       if Fill.Gradient.Style = TGradientStyle.Radial then begin
-        aColors := TJavaArray<Integer>.Create(Fill.Gradient.Points.Count);
-        aStops := TJavaArray<Single>.Create(Fill.Gradient.Points.Count);
-        for i := 0 to Fill.Gradient.Points.Count - 1 do begin
-          aColors[Fill.Gradient.Points.Count - 1 - i] := integer(Fill.Gradient.Points[i].Color);
-          aStops[Fill.Gradient.Points.Count - 1 - i] := 1 - Fill.Gradient.Points[i].Offset;
-        end;
         aShader := TJRadialGradient.JavaClass.init(aRect.CenterPoint.x{x}, aRect.CenterPoint.y{y}, aRect.width / 2{radius},  aColors, aStops, TJShader_TileMode.JavaClass.CLAMP{tile});
         aPaint.setShader(aShader);
-        if (Shadow <> nil) and
-           (Shadow.enabled) then aPaint.setShadowLayer(Shadow.blur{radius}, Shadow.OffsetX{dx}, Shadow.OffsetY{dy}, Shadow.ShadowColor{shadowColor});
-        aCanvas.drawCircle(aRect.CenterPoint.x{cx}, aRect.CenterPoint.y{cy}, aRect.width / 2{radius}, apaint);
-        if (Shadow <> nil) and
-           (Shadow.enabled) then aPaint.clearShadowLayer;
-        aPaint.setShader(nil);
-        aShader := nil;
-        alfreeandNil(aColors);
-        alfreeandNil(aStops);
+      end else begin
+        aShaderL := TJLinearGradient.JavaClass.init(Fill.Gradient.StopPosition.X * aRect.Width{x0}, Fill.Gradient.StopPosition.Y * aRect.Height{y0}, Fill.Gradient.StartPosition.X * aRect.Width{x1}, Fill.Gradient.StartPosition.Y * aRect.Height{y1}, aColors, aStops, TJShader_TileMode.JavaClass.CLAMP{tile});
+        aPaint.setShader(aShaderL);
       end;
+
+      if (Shadow <> nil) and
+         (Shadow.enabled) then aPaint.setShadowLayer(Shadow.blur{radius}, Shadow.OffsetX{dx}, Shadow.OffsetY{dy}, Shadow.ShadowColor{shadowColor});
+      aCanvas.drawCircle(aRect.CenterPoint.x{cx}, aRect.CenterPoint.y{cy}, aRect.width / 2{radius}, apaint);
+      if (Shadow <> nil) and
+         (Shadow.enabled) then aPaint.clearShadowLayer;
+      aPaint.setShader(nil);
+      aShader := nil;
+      alfreeandNil(aColors);
+      alfreeandNil(aStops);
     end
 
     //fill with bitmap
@@ -5396,7 +5418,6 @@ begin
 
     //fill with gradient
     if Fill.Kind = TBrushKind.Gradient then begin
-      if Fill.Gradient.Style = TGradientStyle.Radial then begin
         CGContextSaveGState(aContext);
         //-----
         aCallback.version := 0;
@@ -5409,14 +5430,24 @@ begin
                                   nil, // range - An array of (2*rangeDimension) floats that specifies the valid intervals of output values
                                   @aCallback); // callbacks - A pointer to a callback function table.
         try
-          aShading := CGShadingCreateRadial(aColorSpace, // colorspace
-                                            CGPoint.Create(TPointF.Create(aRect.Width / 2, aRect.height / 2)), // start - The center of the starting circle, in the shading's target coordinate space.
-                                            aRect.Width / 2, // startRadius - The radius of the starting circle, in the shading's target coordinate space.
-                                            CGPoint.Create(TPointF.Create(aRect.Width / 2, aRect.Height / 2)), // end - The center of the ending circle, in the shading's target coordinate space.
-                                            0, // endRadius - The radius of the ending circle, in the shading's target coordinate space.
-                                            aFunc, // function
-                                            1, // extendStart - A Boolean value that specifies whether to extend the shading beyond the starting circle.
-                                            1); // extendEnd - A Boolean value that specifies whether to extend the shading beyond the ending circle.
+          if Fill.Gradient.Style = TGradientStyle.Radial then begin
+            aShading := CGShadingCreateRadial(aColorSpace, // colorspace
+                                              CGPoint.Create(TPointF.Create(aRect.Width / 2, aRect.height / 2)), // start - The center of the starting circle, in the shading's target coordinate space.
+                                              aRect.Width / 2, // startRadius - The radius of the starting circle, in the shading's target coordinate space.
+                                              CGPoint.Create(TPointF.Create(aRect.Width / 2, aRect.Height / 2)), // end - The center of the ending circle, in the shading's target coordinate space.
+                                              0, // endRadius - The radius of the ending circle, in the shading's target coordinate space.
+                                              aFunc, // function
+                                              1, // extendStart - A Boolean value that specifies whether to extend the shading beyond the starting circle.
+                                              1); // extendEnd - A Boolean value that specifies whether to extend the shading beyond the ending circle.
+          end else begin
+            aShading := CGShadingCreateAxial(aColorSpace, // colorspace
+                                              CGPoint.Create(TPointF.Create(Fill.Gradient.StopPosition.X * aRect.Width{x0}, Fill.Gradient.StopPosition.Y * aRect.Height{y0})),
+                                              CGPoint.Create(TPointF.Create(Fill.Gradient.StartPosition.X * aRect.Width{x1}, Fill.Gradient.StartPosition.Y * aRect.Height{y1})),
+                                              aFunc, // function
+                                              1, // extendStart - A Boolean value that specifies whether to extend the shading beyond the starting circle.
+                                              1); // extendEnd - A Boolean value that specifies whether to extend the shading beyond the ending circle.
+          end;
+
           try
             CGContextBeginPath(aContext);  // Creates a new empty path in a graphics context.
             CGContextAddEllipseInRect(aContext, ALLowerLeftCGRect(aRect.TopLeft,
@@ -5462,7 +5493,7 @@ begin
         end;
         //-----
         CGContextRestoreGState(aContext);
-      end;
+
     end
 
     //fill with bitmap
